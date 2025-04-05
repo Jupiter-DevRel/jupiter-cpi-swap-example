@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.95"
 base64 = "0.22.1"
+bs58 = "0.5.0"
 sha2 = "0.10.8"
 solana-client = "2.1.13"
 solana-sdk = "2.1.13"

@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio;
 use tokio::sync::RwLock;
+use bs58;
 
 const INPUT_MINT: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 const INPUT_AMOUNT: u64 = 2_000_000;
@@ -55,15 +56,27 @@ pub struct SwapIxData {
 async fn main() {
     let rpc_url = env::var("RPC_URL").unwrap_or(DEFAULT_RPC_URL.to_string());
 
-    let keypair_str = env::var("KEYPAIR").expect("KEYPAIR environment variable not set");
-    let keypair_bytes: Vec<u8> = keypair_str
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .split(',')
-        .map(|s| s.trim().parse().expect("Failed to parse u8 value"))
-        .collect();
-    let keypair = Keypair::from_bytes(&keypair_bytes).unwrap();
+    // Support for both array format and bs58 private key
+    let keypair = if let Ok(keypair_bs58) = env::var("BS58_KEYPAIR") {
+        // BS58 format
+        let keypair_bytes = bs58::decode(keypair_bs58)
+            .into_vec()
+            .expect("Failed to decode BS58 keypair");
+        Keypair::from_bytes(&keypair_bytes).unwrap()
+    } else {
+        // Original array format
+        let keypair_str = env::var("KEYPAIR").expect("Either KEYPAIR or BS58_KEYPAIR environment variable must be set");
+        let keypair_bytes: Vec<u8> = keypair_str
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .split(',')
+            .map(|s| s.trim().parse().expect("Failed to parse u8 value"))
+            .collect();
+        Keypair::from_bytes(&keypair_bytes).unwrap()
+    };
+
     let keypair_pubkey = keypair.pubkey();
+    println!("Using wallet address: {}", keypair_pubkey);
 
     let rpc_client = Arc::new(RpcClient::new_with_commitment(
         rpc_url.to_string(),
@@ -110,15 +123,18 @@ async fn main() {
         }
     };
 
-    let (vault, _) = Pubkey::find_program_address(&[b"vault"], &CPI_SWAP_PROGRAM_ID);
+    println!("Quote received: {} USDC → {} SOL", 
+        INPUT_AMOUNT as f64 / 1_000_000.0,
+        quote_response.out_amount as f64 / 1_000_000_000.0);
 
+    // Use user's wallet directly instead of vault
     let response = jupiter_swap_api_client
         .swap_instructions(&SwapRequest {
-            user_public_key: vault,
+            user_public_key: keypair_pubkey,
             quote_response,
             config: TransactionConfig {
-                skip_user_accounts_rpc_calls: true,
-                wrap_and_unwrap_sol: false,
+                skip_user_accounts_rpc_calls: false, 
+                wrap_and_unwrap_sol: true, 
                 dynamic_compute_unit_limit: true,
                 dynamic_slippage: Some(DynamicSlippageSettings {
                     min_bps: Some(50),
@@ -135,46 +151,9 @@ async fn main() {
             .await
             .unwrap();
 
-    println!("Vault: {}", vault);
-    let input_token_account = get_associated_token_address(&vault, &INPUT_MINT);
-    let output_token_account = get_associated_token_address(&vault, &OUTPUT_MINT);
-
-    let create_output_ata_ix = create_associated_token_account_idempotent(
-        &keypair.pubkey(),
-        &vault,
-        &OUTPUT_MINT,
-        &TOKEN_PROGRAM_ID,
-    );
-
-    let instruction_data = SwapIxData {
-        data: response.swap_instruction.data,
-    };
-
-    let mut serialized_data = Vec::from(get_discriminator("global:swap"));
-    instruction_data.serialize(&mut serialized_data).unwrap();
-
-    let mut accounts = vec![
-        AccountMeta::new_readonly(INPUT_MINT, false), // input mint
-        AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false), // input mint program (for now, just hardcoded to SPL and not SPL 2022)
-        AccountMeta::new_readonly(OUTPUT_MINT, false),      // output mint
-        AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false), // output mint program (for now, just hardcoded to SPL and not SPL 2022)
-        AccountMeta::new(vault, false),                     // vault
-        AccountMeta::new(input_token_account, false),       // vault input token account
-        AccountMeta::new(output_token_account, false),      // vault output token account
-        AccountMeta::new_readonly(JUPITER_PROGRAM_ID, false), // jupiter program
-    ];
-    let remaining_accounts = response.swap_instruction.accounts;
-    accounts.extend(remaining_accounts.into_iter().map(|mut account| {
-        account.is_signer = false;
-        account
-    }));
-
-    let swap_ix = Instruction {
-        program_id: CPI_SWAP_PROGRAM_ID,
-        accounts,
-        data: serialized_data,
-    };
-
+    // Use Jupiter's swap instruction directly
+    let swap_ix = response.swap_instruction;
+    
     let simulate_cu_ix = ComputeBudgetInstruction::set_compute_unit_limit(1_400_000);
     let cup_ix = ComputeBudgetInstruction::set_compute_unit_price(200_000);
     loop {
@@ -186,12 +165,12 @@ async fn main() {
     }
     let recent_blockhash = latest_blockhash.blockhash.read().await;
 
+    // Simulate the direct Jupiter swap (not using the CPI program)
     let simulate_message = Message::try_compile(
         &keypair_pubkey,
         &[
             simulate_cu_ix,
             cup_ix.clone(),
-            create_output_ata_ix.clone(),
             swap_ix.clone(),
         ],
         &address_lookup_table_accounts,
@@ -226,9 +205,11 @@ async fn main() {
 
     let recent_blockhash = latest_blockhash.blockhash.read().await;
     println!("Latest blockhash: {}", recent_blockhash);
+    
+    // Build final transaction with direct Jupiter swap
     let message = Message::try_compile(
         &keypair_pubkey,
-        &[cu_ix, cup_ix, create_output_ata_ix, swap_ix],
+        &[cu_ix, cup_ix, swap_ix],
         &address_lookup_table_accounts,
         *recent_blockhash,
     )
@@ -243,6 +224,7 @@ async fn main() {
     let retryable_client = retryable_rpc::RetryableRpcClient::new(&rpc_url);
 
     let tx_hash = tx.signatures[0];
+    println!("Sending transaction...");
 
     if let Ok(tx_hash) = retryable_client.send_and_confirm_transaction(&tx).await {
         println!(
