@@ -20,7 +20,6 @@ cp .env.example .env
 Build the `cpi-swap-client` folder.
 
 ```bash
-cd cpi-swap-client
 cargo build
 ```
 
