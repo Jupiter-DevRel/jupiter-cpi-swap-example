@@ -9,6 +9,7 @@ Written in Rust.
 CD into the `cpi-swap-client` directory and copy the `.env.example` file to `.env` and add your private key or keypair.
 
 ```bash
+cd cpi-swap-client
 cp .env.example .env
 ```
 
@@ -17,6 +18,7 @@ cp .env.example .env
 Build the `cpi-swap-client` folder.
 
 ```bash
+cd cpi-swap-client
 cargo build
 ```
 
