@@ -6,7 +6,9 @@ Written in Rust.
 
 ## Setup
 
-CD into the `cpi-swap-client` directory and copy the `.env.example` file to `.env` and add your private key or keypair.
+- CD into the `cpi-swap-client` directory and copy the `.env.example` file to `.env`.
+- Add your `BS58_KEYPAIR` or `KEYPAIR` to the `.env` file.
+- Add your `RPC_URL` to the `.env` file. (optional, default is `https://api.mainnet-beta.solana.com`)
 
 ```bash
 cd cpi-swap-client
@@ -27,6 +29,8 @@ cargo build
 You can either:
 
 1. Run the `cpi-swap-client` folder with the `.env` variables.
+
+NOTE: Make sure you only either have one of the `BS58_KEYPAIR` or `KEYPAIR` variables in your `.env` file. Comment out the other one.
 
 ```bash
 source .env
