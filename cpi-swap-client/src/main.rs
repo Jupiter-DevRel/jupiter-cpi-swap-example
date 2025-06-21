@@ -131,6 +131,7 @@ async fn main() {
     let response = jupiter_swap_api_client
         .swap_instructions(&SwapRequest {
             user_public_key: keypair_pubkey,
+            payer: keypair_pubkey,
             quote_response,
             config: TransactionConfig {
                 skip_user_accounts_rpc_calls: false, 
