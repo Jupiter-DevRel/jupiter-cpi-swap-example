@@ -32,7 +32,7 @@ mod swap_cpi {
         let quote_req = QuoteRequest::new(
             "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
-            1_000_000,
+            1_000,
         );
 
         let quote_res = client
@@ -93,8 +93,6 @@ mod swap_cpi {
             data: swap_ix_data,
         };
 
-        instructions.push(swap_ix);
-
         if let Some(compute_instructions) = swap_res.compute_budget_instructions {
             for instr in compute_instructions {
                 instructions.push(parse_instruction(&instr).unwrap());
@@ -104,6 +102,8 @@ mod swap_cpi {
         for instr in swap_res.setup_instructions {
             instructions.push(parse_instruction(&instr).unwrap());
         }
+
+        instructions.push(swap_ix);
 
         if let Some(cleanup_instr) = swap_res.cleanup_instruction {
             instructions.push(parse_instruction(&cleanup_instr).unwrap());
