@@ -5,6 +5,7 @@ import {
   TransactionMessage,
   Keypair,
   VersionedTransaction,
+  Signer,
 } from "@solana/web3.js";
 import { Program } from "@coral-xyz/anchor";
 import { CpiSwapProgram } from "../target/types/cpi_swap_program";
@@ -23,79 +24,53 @@ describe("cpi-swap-program", () => {
   const provider = anchor.getProvider();
 
   // replace with your own keypair
-  const payer = Keypair.generate();
+  const payer: Signer = Keypair.generate();
 
   const connection = provider.connection;
 
+  // swaping tokens in a PDA, CPI into JUPITER Aggregator v6
   it("Is initialized!", async () => {
     const VAULT_SEED = Buffer.from("vault");
 
+    // derive the vault PDA
     const [vaultPDA, vaultBump] = PublicKey.findProgramAddressSync(
       [VAULT_SEED],
       program.programId
     );
 
     // replace with your valid input and output mint
-    const inputMint = new PublicKey("");
-    const outputMint = new PublicKey("");
+    // For example, swaping 1 USDC and USDT
+    const inputMint = new PublicKey(
+      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    );
+    const outputMint = new PublicKey(
+      "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+    );
 
     // amount in raw format (e.g., 1 SOL = 1000000000)
     const amount = "1000000";
 
+    // get the swap instructions from Jupiter API
     const swap = await get_swap(vaultPDA, inputMint, outputMint, amount);
 
-    const computeBudgetIxs = swap.computeBudgetInstructions.map((ix: any) => {
-      return {
-        programId: new PublicKey(ix.programId),
-        keys: [],
-        data: Buffer.from(ix.data, "base64"),
-      };
-    });
-
-    const setupInstructions = swap.setupInstructions.map((ix: any) => {
-      return {
-        programId: new PublicKey(ix.programId),
-        keys: ix.accounts.map((acc: any) => ({
-          pubkey: new PublicKey(acc.pubkey),
-          isWritable: acc.isWritable,
-          isSigner: acc.isSigner,
-        })),
-        data: Buffer.from(ix.data, "base64"),
-      };
-    });
-
+    // instructions
+    const computeBudgetIxs = swap.computeBudgetInstructions.map(deserializeIx);
+    const setupInstructions = swap.setupInstructions.map(deserializeIx);
     const cleanupInstructions = swap.cleanupInstruction
-      ? swap.cleanupInstruction.map((ix: any) => {
-          return {
-            programId: new PublicKey(ix.programId),
-            keys: ix.accounts.map((acc: any) => ({
-              pubkey: new PublicKey(acc.pubkey),
-              isWritable: acc.isWritable,
-              isSigner: acc.isSigner,
-            })),
-            data: Buffer.from(ix.data, "base64"),
-          };
-        })
+      ? swap.cleanupInstruction?.map(deserializeIx)
+      : [];
+    const otherInstructions = swap.otherInstructions
+      ? swap.otherInstructions.map(deserializeIx)
       : [];
 
-    const otherInstructions = swap.otherInstructions.map((ix: any) => {
-      return {
-        programId: new PublicKey(ix.programId),
-        keys: ix.accounts.map((acc: any) => ({
-          pubkey: new PublicKey(acc.pubkey),
-          isWritable: acc.isWritable,
-          isSigner: acc.isSigner,
-        })),
-        data: Buffer.from(ix.data, "base64"),
-      };
-    });
-
+    // get the accounts needed to cpi into the Jupiter program
     const remainingAccounts = swap.swapInstruction.accounts.map((acc: any) => ({
       pubkey: new PublicKey(acc.pubkey),
       isWritable: acc.isWritable,
       isSigner: false,
     }));
 
+    // decode the instruction data
     const data = Buffer.from(swap.swapInstruction.data, "base64");
 
     const ix = await program.methods
@@ -119,7 +94,7 @@ describe("cpi-swap-program", () => {
         const alt = await connection.getAddressLookupTable(
           new PublicKey(address)
         );
-        if (!alt.value) throw new Error("ALT not found: ${address}");
+        if (!alt.value) throw new Error(`ALT not found: ${address}`);
         return new AddressLookupTableAccount({
           key: new PublicKey(address),
           state: alt.value.state,
@@ -143,11 +118,9 @@ describe("cpi-swap-program", () => {
     const tx = new VersionedTransaction(messageV0);
     tx.sign([payer]);
 
-    console.log(tx.message.compiledInstructions);
+    const sig = await connection.sendTransaction(tx);
 
-    // const sig = await connection.sendTransaction(tx);
-    //
-    // console.log("✅ Signature:", sig);
+    console.log("✅ Signature:", sig);
   });
 });
 
@@ -177,6 +150,17 @@ async function get_swap(
   };
 
   const swap = await axios.request(config);
-  console.log(swap.data);
   return swap.data;
+}
+
+function deserializeIx(ix: any) {
+  return {
+    programId: new PublicKey(ix.programId),
+    keys: ix.accounts.map((acc: any) => ({
+      pubkey: new PublicKey(acc.pubkey),
+      isWritable: acc.isWritable,
+      isSigner: acc.isSigner,
+    })),
+    data: Buffer.from(ix.data, "base64"),
+  };
 }
