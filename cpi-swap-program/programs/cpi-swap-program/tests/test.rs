@@ -1,5 +1,8 @@
+// A3zEKYMys4rAtXBJ7TsygM8mgY7YAUG6QdFXf7oKS5Ugy5g7sLAt3GubaF3mi8LwnMbdb1gL3dDSuHu2itLJyRz
 mod swap_cpi {
+    use anchor_lang::InstructionData;
     use base64::{engine::general_purpose::STANDARD, Engine};
+    use cpi_swap_program::instruction::Swap;
     use dotenv::dotenv;
     use jup_ag_sdk::{
         types::{Instruction as JupInstruction, QuoteRequest, SwapRequest},
@@ -58,10 +61,7 @@ mod swap_cpi {
 
         let mut instructions = vec![];
 
-        let mut swap_ix_data: Vec<u8> = vec![248, 198, 158, 145, 225, 117, 135, 200]; // discriminator for swap instruction
         let jup_ix_data = STANDARD.decode(swap_res.swap_instruction.data).unwrap();
-
-        swap_ix_data.extend_from_slice(&jup_ix_data);
 
         let jupiter_program =
             Pubkey::from_str("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").unwrap();
@@ -87,10 +87,12 @@ mod swap_cpi {
 
         accounts.extend(swap_cpi_accounts);
 
+        let swap_instruction = cpi_swap_program::instruction::Swap { data: jup_ix_data };
+
         let swap_ix = Instruction {
             program_id,
             accounts,
-            data: swap_ix_data,
+            data: swap_instruction.data(),
         };
 
         if let Some(compute_instructions) = swap_res.compute_budget_instructions {
