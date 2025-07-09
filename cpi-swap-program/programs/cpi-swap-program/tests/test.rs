@@ -1,4 +1,3 @@
-// A3zEKYMys4rAtXBJ7TsygM8mgY7YAUG6QdFXf7oKS5Ugy5g7sLAt3GubaF3mi8LwnMbdb1gL3dDSuHu2itLJyRz
 mod swap_cpi {
     use anchor_lang::InstructionData;
     use base64::{engine::general_purpose::STANDARD, Engine};
@@ -23,48 +22,44 @@ mod swap_cpi {
     use std::str::FromStr;
     use std::{env, error::Error};
 
-    #[test]
-    fn add() {
-        assert_eq!(2 + 2, 4);
-    }
-
     #[tokio::test]
     async fn test_swap() {
         let client = JupiterClient::new("https://lite-api.jup.ag");
 
+        // replace this with your vault input and output mint addresses
+        // in this example, we are swaping 0.0001 USDC and SOL
         let quote_req = QuoteRequest::new(
             "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
             1_000,
         );
 
+        // fetch quote from Jupiter API
         let quote_res = client
             .get_quote(&quote_req)
             .await
             .expect("failed to get quote");
 
-        let program_id: Pubkey = Pubkey::from_str("4GRV9oi2S8QYXexvr5rsnWosaQpsuuWFBSay8vMjEuXE")
+        // cpi swap program ID
+        let program_id: Pubkey = Pubkey::from_str("8KQG1MYXru73rqobftpFjD3hBD8Ab3jaag8wbjZG63sx")
             .expect("Invalid pubkey");
 
         let (vault, _) = Pubkey::find_program_address(&[b"vault"], &program_id);
 
+        // replace the payer with your address
         let swap_req = SwapRequest::new(
             vault.to_string(),
             "37STxhFXU5tGYV9JVsMujUGKAEQMVwZFhSbG9sBq7zQ2",
             quote_res,
         );
 
+        // fetch the swap instructions from Jupiter API
         let swap_res = client
             .get_swap_instructions(&swap_req)
             .await
             .expect("failed to get swap instructions");
 
         let mut instructions = vec![];
-
-        let jup_ix_data = STANDARD.decode(swap_res.swap_instruction.data).unwrap();
-
-        let jupiter_program =
-            Pubkey::from_str("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").unwrap();
 
         let swap_cpi_accounts = swap_res
             .swap_instruction
@@ -80,12 +75,37 @@ mod swap_cpi {
             })
             .collect::<Vec<AccountMeta>>();
 
+        let jupiter_program =
+            Pubkey::from_str("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4").unwrap();
+
+        // accounts
         let mut accounts = vec![
+            AccountMeta::new_readonly(Pubkey::from_str("input_mint_pubkey").unwrap(), false),
+            AccountMeta::new_readonly(
+                Pubkey::from_str("input_mint_program_pubkey").unwrap(),
+                false,
+            ),
+            AccountMeta::new_readonly(Pubkey::from_str("output_mint_pubkey").unwrap(), false),
+            AccountMeta::new_readonly(
+                Pubkey::from_str("output_mint_program_pubkey").unwrap(),
+                false,
+            ),
             AccountMeta::new(vault, false),
+            AccountMeta::new(
+                Pubkey::from_str("vault_input_token_account_pubkey").unwrap(),
+                false,
+            ),
+            AccountMeta::new(
+                Pubkey::from_str("vault_output_token_account_pubkey").unwrap(),
+                false,
+            ),
             AccountMeta::new_readonly(jupiter_program, false),
         ];
 
         accounts.extend(swap_cpi_accounts);
+
+        // decode the swap instruction data
+        let jup_ix_data = STANDARD.decode(swap_res.swap_instruction.data).unwrap();
 
         let swap_instruction = cpi_swap_program::instruction::Swap { data: jup_ix_data };
 
@@ -117,13 +137,13 @@ mod swap_cpi {
             }
         }
 
-        let rpc_url =
-            "https://mainnet.helius-rpc.com/?api-key=c991f045-ba1f-4d71-b872-0ef87e7f039d";
+        let rpc_url = "https://mainnet.helius-rpc.com/?api-key=";
         let rpc_client = solana_client::nonblocking::rpc_client::RpcClient::new_with_commitment(
             rpc_url.to_string(),
             CommitmentConfig::confirmed(),
         );
 
+        // resolve address lookup tables
         let mut address_table_lookups = vec![];
         for alt_address in swap_res.address_lookup_table_addresses {
             let alt_pubkey = alt_address.parse::<Pubkey>().unwrap();
@@ -138,6 +158,7 @@ mod swap_cpi {
             address_table_lookups.push(address_table_account);
         }
 
+        // replace with your keypair bytes
         let key_bytes = [];
         let keypair = Keypair::from_bytes(&key_bytes).expect("Failed to create Keypair");
 
