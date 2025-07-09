@@ -2,7 +2,6 @@ mod swap_cpi {
     use anchor_lang::InstructionData;
     use base64::{engine::general_purpose::STANDARD, Engine};
     use cpi_swap_program::instruction::Swap;
-    use dotenv::dotenv;
     use jup_ag_sdk::{
         types::{Instruction as JupInstruction, QuoteRequest, SwapRequest},
         JupiterClient,
@@ -19,14 +18,14 @@ mod swap_cpi {
         signature::{Keypair, Signer},
         transaction::VersionedTransaction,
     };
+    use std::error::Error;
     use std::str::FromStr;
-    use std::{env, error::Error};
 
     #[tokio::test]
     async fn test_swap() {
         let client = JupiterClient::new("https://lite-api.jup.ag");
 
-        // replace this with your vault input and output mint addresses
+        // replace this with your valid input and output mint addresses
         // in this example, we are swaping 0.0001 USDC and SOL
         let quote_req = QuoteRequest::new(
             "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
